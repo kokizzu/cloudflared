@@ -87,6 +87,10 @@ const (
 var (
 	graceShutdownC chan struct{}
 	version        string
+
+	routeFailMsg = fmt.Sprintf("failed to provision routing, please create it manually via Cloudflare dashboard or UI; "+
+		"most likely you already have a conflicting record there. You can also rerun this command with --%s to overwrite "+
+		"any existing DNS records for this hostname.", overwriteDNSFlag)
 )
 
 func Flags() []cli.Flag {
@@ -159,6 +163,12 @@ func TunnelCommand(c *cli.Context) error {
 		return fmt.Errorf("Use `cloudflared tunnel run` to start tunnel %s", ref)
 	}
 
+	// Unauthenticated named tunnel on <random>.<quick-tunnels-service>.com
+	// For now, default to legacy setup unless quick-service is specified
+	if c.String("hostname") == "" && c.String("quick-service") != "" {
+		return RunQuickTunnel(sc)
+	}
+
 	// Start a classic tunnel
 	return runClassicTunnel(sc)
 }
@@ -181,7 +191,7 @@ func runAdhocNamedTunnel(sc *subcommandContext, name, credentialsOutputPath stri
 
 	if r, ok := routeFromFlag(sc.c); ok {
 		if res, err := sc.route(tunnel.ID, r); err != nil {
-			sc.log.Err(err).Str("route", r.String()).Msg("failed to provision routing, please create it manually via Cloudflare dashboard or UI; most likely you already have a conflicting record there")
+			sc.log.Err(err).Str("route", r.String()).Msg(routeFailMsg)
 		} else {
 			sc.log.Info().Msg(res.SuccessSummary())
 		}
@@ -196,15 +206,15 @@ func runAdhocNamedTunnel(sc *subcommandContext, name, credentialsOutputPath stri
 
 // runClassicTunnel creates a "classic" non-named tunnel
 func runClassicTunnel(sc *subcommandContext) error {
-	return StartServer(sc.c, version, nil, sc.log, sc.isUIEnabled)
+	return StartServer(sc.c, version, nil, sc.log, sc.isUIEnabled, "")
 }
 
-func routeFromFlag(c *cli.Context) (tunnelstore.Route, bool) {
+func routeFromFlag(c *cli.Context) (route tunnelstore.Route, ok bool) {
 	if hostname := c.String("hostname"); hostname != "" {
 		if lbPool := c.String("lb-pool"); lbPool != "" {
 			return tunnelstore.NewLBRoute(hostname, lbPool), true
 		}
-		return tunnelstore.NewDNSRoute(hostname), true
+		return tunnelstore.NewDNSRoute(hostname, c.Bool(overwriteDNSFlagName)), true
 	}
 	return nil, false
 }
@@ -215,6 +225,7 @@ func StartServer(
 	namedTunnel *connection.NamedTunnelConfig,
 	log *zerolog.Logger,
 	isUIEnabled bool,
+	quickTunnelHostname string,
 ) error {
 	_ = raven.SetDSN(sentryDSN)
 	var wg sync.WaitGroup
@@ -331,7 +342,7 @@ func StartServer(
 		defer wg.Done()
 		readinessServer := metrics.NewReadyServer(log)
 		observer.RegisterSink(readinessServer)
-		errC <- metrics.ServeMetrics(metricsListener, ctx.Done(), readinessServer, log)
+		errC <- metrics.ServeMetrics(metricsListener, ctx.Done(), readinessServer, quickTunnelHostname, log)
 	}()
 
 	if err := ingressRules.StartOrigins(&wg, log, ctx.Done(), errC); err != nil {
@@ -612,7 +623,13 @@ func tunnelFlags(shouldHide bool) []cli.Flag {
 			Value:  false,
 			Hidden: shouldHide,
 		}),
+		altsrc.NewStringFlag(&cli.StringFlag{
+			Name:   "quick-service",
+			Usage:  "URL for a service which manages unauthenticated 'quick' tunnels.",
+			Hidden: true,
+		}),
 		selectProtocolFlag,
+		overwriteDNSFlag,
 	}...)
 
 	return flags

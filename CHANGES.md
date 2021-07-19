@@ -1,5 +1,30 @@
 **Experimental**: This is a new format for release notes. The format and availability is subject to change.
 
+## 2021.6.0
+### Bug Fixes
+- Fixes a http2 transport (the new default for Named Tunnels) to work with unix socket origins.
+
+
+## 2021.5.10
+### Bug Fixes
+- Fixes a memory leak in h2mux transport that connects cloudflared to Cloudflare edge.
+
+
+## 2021.5.9
+### New Features
+- Uses new Worker based login helper service to facilitate token exchange in cloudflared flows.
+
+### Bug Fixes
+- Fixes Centos-7 builds.
+
+## 2021.5.8
+### New Features
+- When creating a DNS record to point a hostname at a tunnel, you can now use --overwrite-dns to overwrite any existing
+  DNS records with that hostname. This works both when using the CLI to provision DNS, as well as when starting an adhoc
+  named tunnel, e.g.:
+  - `cloudflared tunnel route dns --overwrite-dns foo-tunnel foo.example.com`
+  - `cloudflared tunnel --overwrite-dns --name foo-tunnel --hostname foo.example.com`
+
 ## 2021.5.7
 ### New Features
 - Named Tunnels will automatically select the protocol to connect to Cloudflare's edge network.

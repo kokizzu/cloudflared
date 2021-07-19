@@ -81,27 +81,32 @@ type RouteResult interface {
 }
 
 type DNSRoute struct {
-	userHostname string
+	userHostname      string
+	overwriteExisting bool
 }
 
 type DNSRouteResult struct {
 	route *DNSRoute
 	CName Change `json:"cname"`
+	Name  string `json:"name"`
 }
 
-func NewDNSRoute(userHostname string) Route {
+func NewDNSRoute(userHostname string, overwriteExisting bool) Route {
 	return &DNSRoute{
-		userHostname: userHostname,
+		userHostname:      userHostname,
+		overwriteExisting: overwriteExisting,
 	}
 }
 
 func (dr *DNSRoute) MarshalJSON() ([]byte, error) {
 	s := struct {
-		Type         string `json:"type"`
-		UserHostname string `json:"user_hostname"`
+		Type              string `json:"type"`
+		UserHostname      string `json:"user_hostname"`
+		OverwriteExisting bool   `json:"overwrite_existing"`
 	}{
-		Type:         dr.RecordType(),
-		UserHostname: dr.userHostname,
+		Type:              dr.RecordType(),
+		UserHostname:      dr.userHostname,
+		OverwriteExisting: dr.overwriteExisting,
 	}
 	return json.Marshal(&s)
 }
@@ -131,7 +136,16 @@ func (res *DNSRouteResult) SuccessSummary() string {
 	case ChangeUnchanged:
 		msgFmt = "%s is already configured to route to your tunnel"
 	}
-	return fmt.Sprintf(msgFmt, res.route.userHostname)
+	return fmt.Sprintf(msgFmt, res.hostname())
+}
+
+// hostname yields the resulting name for the DNS route; if that is not available from Cloudflare API, then the
+// requested name is returned instead (should not be the common path, it is just a fall-back).
+func (res *DNSRouteResult) hostname() string {
+	if res.Name != "" {
+		return res.Name
+	}
+	return res.route.userHostname
 }
 
 type LBRoute struct {
